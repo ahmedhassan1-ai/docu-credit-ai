@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -16,7 +18,9 @@ import {
   ShieldCheck,
   Sparkles,
   Upload,
+  Wallet,
   X,
+  XCircle,
 } from "lucide-react";
 
 type AnalysisResult = {
@@ -24,14 +28,18 @@ type AnalysisResult = {
   salaryName: string;
   jobTitle: string;
   employer?: string;
-  monthlySalaryUsd: number;
-  annualSalaryUsd: number;
   currencyOriginal?: string;
+  monthlySalaryEgp: number;
+  annualSalaryEgp: number;
+  maxLoanLimitEgp: number;
+  requestedLoanEgp: number;
+  salaryCalculation: string;
   nameMatch: boolean;
   conflictReason?: string;
   creditRecommendation: "High Eligibility" | "Medium Eligibility" | "Low Eligibility";
+  decision: "Approve" | "Reject";
+  detailedReport: string;
   confidence?: number;
-  notes?: string;
 };
 
 const fileToBase64 = (file: File) =>
@@ -117,16 +125,18 @@ const DropZone = ({ label, hint, accept, icon, file, onFile }: DropZoneProps) =>
   );
 };
 
-const formatUsd = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n || 0);
+const formatEgp = (n: number) =>
+  new Intl.NumberFormat("en-EG", { style: "currency", currency: "EGP", maximumFractionDigits: 0 }).format(n || 0);
 
 const Index = () => {
   const [idFile, setIdFile] = useState<File | null>(null);
   const [salaryFile, setSalaryFile] = useState<File | null>(null);
+  const [loanAmount, setLoanAmount] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
 
-  const canAnalyze = !!idFile && !!salaryFile && !loading;
+  const loanNumber = Number(loanAmount);
+  const canAnalyze = !!idFile && !!salaryFile && loanNumber > 0 && !loading;
 
   const recoTone = useMemo(() => {
     if (!result) return "";
@@ -135,14 +145,17 @@ const Index = () => {
     return "bg-destructive text-destructive-foreground";
   }, [result]);
 
+  const decisionApproved = result?.decision === "Approve";
+
   const handleAnalyze = useCallback(async () => {
-    if (!idFile || !salaryFile) return;
+    if (!idFile || !salaryFile || loanNumber <= 0) return;
     setLoading(true);
     setResult(null);
     try {
       const [idData, salaryData] = await Promise.all([fileToBase64(idFile), fileToBase64(salaryFile)]);
       const { data, error } = await supabase.functions.invoke("analyze-documents", {
         body: {
+          requestedLoanEgp: loanNumber,
           files: [
             { name: idFile.name, mimeType: idFile.type || "image/jpeg", data: idData, kind: "id" },
             {
@@ -158,7 +171,8 @@ const Index = () => {
       if (error) {
         const msg = (error as { message?: string }).message || "Analysis failed";
         if (msg.includes("429")) toast.error("Rate limit reached — please wait a moment and try again.");
-        else if (msg.includes("402")) toast.error("AI credits exhausted. Top up in Settings → Workspace → Usage.");
+        else if (msg.toLowerCase().includes("gemini_api_key"))
+          toast.error("Gemini API key missing or invalid. Please reconfigure it in settings.");
         else toast.error(msg);
         return;
       }
@@ -176,7 +190,7 @@ const Index = () => {
     } finally {
       setLoading(false);
     }
-  }, [idFile, salaryFile]);
+  }, [idFile, salaryFile, loanNumber]);
 
   return (
     <main className="min-h-screen bg-background">
@@ -193,7 +207,7 @@ const Index = () => {
             </div>
           </div>
           <Badge variant="secondary" className="hidden md:inline-flex gap-1">
-            <Sparkles className="h-3 w-3" /> Powered by Lovable AI
+            <Sparkles className="h-3 w-3" /> Gemini 1.5 Flash
           </Badge>
         </div>
       </header>
@@ -205,17 +219,17 @@ const Index = () => {
         <div className="relative container py-16 md:py-24 text-primary-foreground">
           <div className="max-w-3xl">
             <Badge className="bg-white/15 text-white border-white/20 hover:bg-white/20 backdrop-blur">
-              <Sparkles className="h-3 w-3 mr-1" /> AI-Powered Document Verification
+              <Sparkles className="h-3 w-3 mr-1" /> AI-Powered Loan Underwriting
             </Badge>
             <h1 className="font-display text-4xl md:text-6xl font-extrabold leading-[1.05] mt-5">
-              Verify applicants in <span className="text-white/90">seconds</span>,{" "}
+              Approve loans in <span className="text-white/90">seconds</span>,{" "}
               <span className="block bg-gradient-to-r from-white to-cyan-200 bg-clip-text text-transparent">
-                approve with confidence.
+                with full risk assessment.
               </span>
             </h1>
             <p className="mt-5 text-lg text-white/80 max-w-2xl">
-              Upload an ID card and salary letter. Our AI extracts identity data, cross-checks names, and recommends
-              credit eligibility — instantly.
+              Upload an ID and a salary letter, enter the requested loan amount, and let the AI verify identity,
+              compute affordability, and deliver an approve/reject decision.
             </p>
           </div>
 
@@ -223,7 +237,7 @@ const Index = () => {
           <Card className="mt-10 shadow-elegant border-0 animate-fade-in">
             <CardHeader>
               <CardTitle className="font-display text-primary flex items-center gap-2">
-                <Upload className="h-5 w-5" /> Upload Documents
+                <Upload className="h-5 w-5" /> Loan Application
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -246,15 +260,27 @@ const Index = () => {
                 />
               </div>
 
-              <div className="mt-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <p className="text-sm text-muted-foreground">
-                  Files are processed securely and used only for this analysis.
-                </p>
+              <div className="mt-6 grid md:grid-cols-[1fr_auto] gap-4 items-end">
+                <div>
+                  <Label htmlFor="loan" className="text-sm font-semibold text-foreground flex items-center gap-2 mb-2">
+                    <Wallet className="h-4 w-4 text-primary" /> Requested Loan Amount (EGP)
+                  </Label>
+                  <Input
+                    id="loan"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    placeholder="e.g. 250000"
+                    value={loanAmount}
+                    onChange={(e) => setLoanAmount(e.target.value)}
+                    className="h-12 text-lg font-semibold"
+                  />
+                </div>
                 <Button
                   size="lg"
                   disabled={!canAnalyze}
                   onClick={handleAnalyze}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-8 shadow-soft"
+                  className="h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-8 shadow-soft"
                 >
                   {loading ? (
                     <>
@@ -267,6 +293,9 @@ const Index = () => {
                   )}
                 </Button>
               </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Conversion rate used: 1 USD = 48 EGP. Files are processed securely for this analysis only.
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -279,18 +308,18 @@ const Index = () => {
             {[
               {
                 icon: <IdCard className="h-5 w-5" />,
-                title: "Identity Extraction",
-                body: "Reads the full name and key details directly from the ID document.",
+                title: "Identity Verification",
+                body: "Reads the full name from the ID and cross-checks it against the salary letter.",
+              },
+              {
+                icon: <Wallet className="h-5 w-5" />,
+                title: "Salary in EGP",
+                body: "Detects salary, converts USD → EGP at 48, and shows the calculation.",
               },
               {
                 icon: <ShieldCheck className="h-5 w-5" />,
-                title: "Name Cross-Check",
-                body: "Detects mismatches between ID and salary letter to flag potential fraud.",
-              },
-              {
-                icon: <Building2 className="h-5 w-5" />,
-                title: "Credit Recommendation",
-                body: "Generates an eligibility tier based on monthly and annual salary.",
+                title: "Affordability Check",
+                body: "Calculates max loan as 50% of annual income and decides Approve / Reject.",
               },
             ].map((f) => (
               <Card key={f.title} className="bg-card-soft border-border">
@@ -310,22 +339,21 @@ const Index = () => {
           <div className="space-y-6 animate-fade-in">
             {/* Conflict / verified */}
             {!result.nameMatch ? (
-              <Alert variant="destructive" className="border-destructive/40 bg-destructive/5">
+              <Alert variant="destructive" className="border-destructive/50 bg-destructive/10">
                 <AlertTriangle className="h-5 w-5" />
-                <AlertTitle className="font-display">Data Conflict Detected</AlertTitle>
+                <AlertTitle className="font-display text-base">⚠ Data Conflict Detected — Name Mismatch</AlertTitle>
                 <AlertDescription>
-                  The name on the ID does not match the name on the salary letter.
-                  {result.conflictReason ? <> {result.conflictReason}</> : null} Please request additional verification
-                  from the applicant before proceeding.
+                  ID name <span className="font-semibold">"{result.idName}"</span> does not match Salary Letter name{" "}
+                  <span className="font-semibold">"{result.salaryName}"</span>.
+                  {result.conflictReason ? <> {result.conflictReason}</> : null} Application has been{" "}
+                  <span className="font-bold">automatically rejected</span> pending manual review.
                 </AlertDescription>
               </Alert>
             ) : (
               <Alert className="border-success/40 bg-success/5 text-foreground">
                 <CheckCircle2 className="h-5 w-5 text-success" />
                 <AlertTitle className="font-display text-success">Identity Verified</AlertTitle>
-                <AlertDescription>
-                  The name on the ID matches the name on the salary letter.
-                </AlertDescription>
+                <AlertDescription>The name on the ID matches the name on the salary letter.</AlertDescription>
               </Alert>
             )}
 
@@ -341,24 +369,30 @@ const Index = () => {
               </Card>
               <Card className="bg-card-soft">
                 <CardContent className="p-5">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Job Title</p>
-                  <p className="font-display font-bold text-lg text-foreground mt-1 truncate">
-                    {result.jobTitle || "—"}
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Annual Income</p>
+                  <p className="font-display font-bold text-lg text-primary mt-1">
+                    {formatEgp(result.annualSalaryEgp)}
                   </p>
                 </CardContent>
               </Card>
               <Card className="bg-card-soft">
                 <CardContent className="p-5">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Annual Salary</p>
-                  <p className="font-display font-bold text-lg text-primary mt-1">
-                    {formatUsd(result.annualSalaryUsd)}
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Max Loan Limit (50%)</p>
+                  <p className="font-display font-bold text-lg text-foreground mt-1">
+                    {formatEgp(result.maxLoanLimitEgp)}
                   </p>
                 </CardContent>
               </Card>
-              <Card className="bg-primary text-primary-foreground">
+              <Card className={decisionApproved ? "bg-success text-success-foreground" : "bg-destructive text-destructive-foreground"}>
                 <CardContent className="p-5">
-                  <p className="text-xs uppercase tracking-wider text-primary-foreground/70">Recommendation</p>
-                  <Badge className={`mt-2 ${recoTone}`}>{result.creditRecommendation}</Badge>
+                  <p className="text-xs uppercase tracking-wider opacity-80">Decision</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    {decisionApproved ? <CheckCircle2 className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
+                    <p className="font-display font-extrabold text-xl">{result.decision}</p>
+                  </div>
+                  <Badge variant="secondary" className="mt-2">
+                    {result.creditRecommendation}
+                  </Badge>
                 </CardContent>
               </Card>
             </div>
@@ -414,16 +448,41 @@ const Index = () => {
                     )}
                     <TableRow>
                       <TableCell className="font-medium">Monthly Salary</TableCell>
-                      <TableCell>{formatUsd(result.monthlySalaryUsd)}</TableCell>
+                      <TableCell>
+                        {formatEgp(result.monthlySalaryEgp)}
+                        {result.currencyOriginal && result.currencyOriginal.toUpperCase() !== "EGP" && (
+                          <span className="text-xs text-muted-foreground ml-2">
+                            (orig. {result.currencyOriginal})
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="secondary">Calculated</Badge>
                       </TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell className="font-medium">Annual Salary</TableCell>
-                      <TableCell>{formatUsd(result.annualSalaryUsd)}</TableCell>
+                      <TableCell>{formatEgp(result.annualSalaryEgp)}</TableCell>
                       <TableCell className="text-right">
                         <Badge variant="secondary">Calculated</Badge>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="font-medium">Max Loan Limit (50% of annual)</TableCell>
+                      <TableCell className="font-semibold">{formatEgp(result.maxLoanLimitEgp)}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="secondary">Rule</Badge>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="font-medium">Requested Loan</TableCell>
+                      <TableCell className="font-semibold">{formatEgp(result.requestedLoanEgp)}</TableCell>
+                      <TableCell className="text-right">
+                        {result.requestedLoanEgp <= result.maxLoanLimitEgp ? (
+                          <Badge className="bg-success text-success-foreground">Within Limit</Badge>
+                        ) : (
+                          <Badge className="bg-destructive text-destructive-foreground">Exceeds Limit</Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                     <TableRow>
@@ -433,20 +492,94 @@ const Index = () => {
                         <Badge className={recoTone}>{result.creditRecommendation.split(" ")[0]}</Badge>
                       </TableCell>
                     </TableRow>
-                    {typeof result.confidence === "number" && (
-                      <TableRow>
-                        <TableCell className="font-medium">AI Confidence</TableCell>
-                        <TableCell>{Math.round((result.confidence || 0) * 100)}%</TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant="outline">Self-rated</Badge>
-                        </TableCell>
-                      </TableRow>
-                    )}
+                    <TableRow>
+                      <TableCell className="font-medium">Final Decision</TableCell>
+                      <TableCell className="font-bold">{result.decision}</TableCell>
+                      <TableCell className="text-right">
+                        {decisionApproved ? (
+                          <Badge className="bg-success text-success-foreground">Approved</Badge>
+                        ) : (
+                          <Badge className="bg-destructive text-destructive-foreground">Rejected</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
-                {result.notes && (
-                  <p className="mt-4 text-sm text-muted-foreground italic">Notes: {result.notes}</p>
-                )}
+              </CardContent>
+            </Card>
+
+            {/* Financial Analysis & Risk Assessment */}
+            <Card className="shadow-elegant border-l-4 border-l-primary">
+              <CardHeader>
+                <CardTitle className="font-display text-primary flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5" /> Financial Analysis & Risk Assessment
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="rounded-lg bg-card-soft p-4 border border-border">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Salary Calculation</p>
+                  <p className="text-sm text-foreground leading-relaxed">{result.salaryCalculation}</p>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-3">
+                  <div className="rounded-lg border border-border p-4">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Annual Income</p>
+                    <p className="font-display font-bold text-lg text-foreground mt-1">
+                      {formatEgp(result.annualSalaryEgp)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border p-4">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Max Loan (50%)</p>
+                    <p className="font-display font-bold text-lg text-foreground mt-1">
+                      {formatEgp(result.maxLoanLimitEgp)}
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-lg border p-4 ${
+                      result.requestedLoanEgp <= result.maxLoanLimitEgp
+                        ? "border-success/40 bg-success/5"
+                        : "border-destructive/40 bg-destructive/5"
+                    }`}
+                  >
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Requested</p>
+                    <p className="font-display font-bold text-lg text-foreground mt-1">
+                      {formatEgp(result.requestedLoanEgp)}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Officer's Report</p>
+                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
+                    {result.detailedReport}
+                  </p>
+                </div>
+
+                <div
+                  className={`rounded-lg p-4 flex items-center gap-3 ${
+                    decisionApproved
+                      ? "bg-success/10 border border-success/40"
+                      : "bg-destructive/10 border border-destructive/40"
+                  }`}
+                >
+                  {decisionApproved ? (
+                    <CheckCircle2 className="h-6 w-6 text-success" />
+                  ) : (
+                    <XCircle className="h-6 w-6 text-destructive" />
+                  )}
+                  <div>
+                    <p className="font-display font-extrabold text-lg">
+                      Final Decision: {result.decision}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {decisionApproved
+                        ? "Loan is within the affordability limit and identity is verified."
+                        : !result.nameMatch
+                          ? "Rejected due to name mismatch between ID and salary letter."
+                          : "Rejected because the requested amount exceeds the maximum loan limit."}
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -455,7 +588,7 @@ const Index = () => {
 
       <footer className="border-t border-border py-8 mt-8">
         <div className="container text-center text-sm text-muted-foreground">
-          © {new Date().getFullYear()} Credit Officer AI · Bank-grade document analysis
+          © {new Date().getFullYear()} Credit Officer AI · Powered by Google Gemini · 1 USD = 48 EGP
         </div>
       </footer>
     </main>
