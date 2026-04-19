@@ -12,16 +12,35 @@ interface FileInput {
   kind: "id" | "salary";
 }
 
+const USD_TO_EGP = 48;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "GEMINI_API_KEY is not configured. Please add it in your project secrets." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
-    const { files } = (await req.json()) as { files: FileInput[] };
+    const { files, requestedLoanEgp } = (await req.json()) as {
+      files: FileInput[];
+      requestedLoanEgp: number;
+    };
+
     if (!files || !Array.isArray(files) || files.length === 0) {
       return new Response(JSON.stringify({ error: "No files provided" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const loanAmount = Number(requestedLoanEgp);
+    if (!loanAmount || loanAmount <= 0) {
+      return new Response(JSON.stringify({ error: "A valid Requested Loan Amount (EGP) is required." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -37,121 +56,127 @@ Deno.serve(async (req) => {
       );
     }
 
-    const userContent: any[] = [
-      {
-        type: "text",
-        text: `You are a banking credit officer assistant. Analyze the two attached documents:
+    const prompt = `You are a senior banking credit officer in Egypt. Analyze the two attached documents:
 1) An ID card/passport (image)
 2) A salary letter (PDF or image)
 
-Extract the data and call the function 'submit_analysis' with the structured result.
+The applicant is requesting a loan of ${loanAmount.toLocaleString()} EGP.
 
-Rules:
-- For the ID, extract the person's full legal name and (if visible) job title.
-- For the salary letter, extract: full name, job title, employer, and salary. Determine monthlySalaryUsd and annualSalaryUsd as numbers (USD). If currency differs, convert at a reasonable approximate rate and note it.
-- Compare names from ID vs Salary Letter. Names are considered matching if they refer to the same person (ignore casing, accents, middle name order, and minor spelling differences). Set nameMatch=false ONLY when the difference is meaningful.
+Use these EXACT rules:
+- Currency conversion: 1 USD = ${USD_TO_EGP} EGP. If the salary is in USD, convert to EGP using this rate. If already in EGP, keep it.
+- monthlySalaryEgp must be a number (in EGP).
+- annualSalaryEgp = monthlySalaryEgp * 12.
+- maxLoanLimitEgp = 50% of annualSalaryEgp (i.e. annualSalaryEgp * 0.5).
+- nameMatch: compare the full name on the ID vs the salary letter. Names match if they refer to the same person (ignore casing, accents, middle name order, minor spelling). Set nameMatch=false ONLY for a meaningful mismatch (e.g. "Hassan" vs "Ahmed").
 - conflictReason: short explanation if nameMatch=false, else empty string.
-- creditRecommendation: "High Eligibility" if annual >= 50000, "Medium Eligibility" if 20000–49999, "Low Eligibility" if < 20000.
-- confidence: 0..1 self-rated extraction confidence.`,
+- decision:
+   * "Reject" if nameMatch is false (data conflict — never approve a mismatch).
+   * "Reject" if requested loan (${loanAmount} EGP) exceeds maxLoanLimitEgp.
+   * "Approve" otherwise.
+- creditRecommendation:
+   * "High Eligibility" if requested <= 50% of maxLoanLimitEgp (very safe).
+   * "Medium Eligibility" if requested <= maxLoanLimitEgp.
+   * "Low Eligibility" if requested > maxLoanLimitEgp.
+- salaryCalculation: 1-2 sentence string showing the conversion math, e.g. "Salary detected as 2,000 USD/month. Converted at 48 EGP/USD → 96,000 EGP/month. Annual = 1,152,000 EGP."
+- detailedReport: a thorough 4-6 sentence professional risk assessment in English explaining the final decision. Reference: applicant identity, employer stability, monthly/annual EGP income, the 50% max loan limit, the requested amount vs the limit, and any name conflict. End with a clear Approve/Reject statement and reasoning.
+- confidence: 0..1 self-rated extraction confidence.
+
+Respond by calling the submit_analysis function exactly once.`;
+
+    // Build Gemini parts: text + inline ID image + salary (image or pdf)
+    const parts: any[] = [
+      { text: prompt },
+      {
+        inline_data: {
+          mime_type: idFile.mimeType,
+          data: idFile.data,
+        },
       },
       {
-        type: "image_url",
-        image_url: { url: `data:${idFile.mimeType};base64,${idFile.data}` },
+        inline_data: {
+          mime_type: salaryFile.mimeType,
+          data: salaryFile.data,
+        },
       },
     ];
-
-    // Salary file: image or pdf
-    if (salaryFile.mimeType.startsWith("image/")) {
-      userContent.push({
-        type: "image_url",
-        image_url: { url: `data:${salaryFile.mimeType};base64,${salaryFile.data}` },
-      });
-    } else {
-      // PDFs / other docs via file part
-      userContent.push({
-        type: "file",
-        file: {
-          filename: salaryFile.name || "salary.pdf",
-          file_data: `data:${salaryFile.mimeType};base64,${salaryFile.data}`,
-        },
-      });
-    }
 
     const tools = [
       {
-        type: "function",
-        function: {
-          name: "submit_analysis",
-          description: "Submit the structured credit analysis result.",
-          parameters: {
-            type: "object",
-            properties: {
-              idName: { type: "string" },
-              salaryName: { type: "string" },
-              jobTitle: { type: "string" },
-              employer: { type: "string" },
-              monthlySalaryUsd: { type: "number" },
-              annualSalaryUsd: { type: "number" },
-              currencyOriginal: { type: "string" },
-              nameMatch: { type: "boolean" },
-              conflictReason: { type: "string" },
-              creditRecommendation: {
-                type: "string",
-                enum: ["High Eligibility", "Medium Eligibility", "Low Eligibility"],
+        function_declarations: [
+          {
+            name: "submit_analysis",
+            description: "Submit the structured credit analysis result.",
+            parameters: {
+              type: "object",
+              properties: {
+                idName: { type: "string" },
+                salaryName: { type: "string" },
+                jobTitle: { type: "string" },
+                employer: { type: "string" },
+                currencyOriginal: { type: "string", description: "Original currency on the salary letter (EGP, USD, etc.)" },
+                monthlySalaryEgp: { type: "number" },
+                annualSalaryEgp: { type: "number" },
+                maxLoanLimitEgp: { type: "number" },
+                requestedLoanEgp: { type: "number" },
+                salaryCalculation: { type: "string" },
+                nameMatch: { type: "boolean" },
+                conflictReason: { type: "string" },
+                creditRecommendation: {
+                  type: "string",
+                  enum: ["High Eligibility", "Medium Eligibility", "Low Eligibility"],
+                },
+                decision: { type: "string", enum: ["Approve", "Reject"] },
+                detailedReport: { type: "string" },
+                confidence: { type: "number" },
               },
-              confidence: { type: "number" },
-              notes: { type: "string" },
+              required: [
+                "idName",
+                "salaryName",
+                "jobTitle",
+                "monthlySalaryEgp",
+                "annualSalaryEgp",
+                "maxLoanLimitEgp",
+                "salaryCalculation",
+                "nameMatch",
+                "creditRecommendation",
+                "decision",
+                "detailedReport",
+              ],
             },
-            required: [
-              "idName",
-              "salaryName",
-              "jobTitle",
-              "monthlySalaryUsd",
-              "annualSalaryUsd",
-              "nameMatch",
-              "creditRecommendation",
-            ],
-            additionalProperties: false,
           },
-        },
+        ],
       },
     ];
 
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    const aiResp = await fetch(geminiUrl, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a precise document analysis assistant for a bank's credit department. Always respond by calling the submit_analysis tool exactly once.",
-          },
-          { role: "user", content: userContent },
-        ],
+        contents: [{ role: "user", parts }],
         tools,
-        tool_choice: { type: "function", function: { name: "submit_analysis" } },
+        tool_config: {
+          function_calling_config: { mode: "ANY", allowed_function_names: ["submit_analysis"] },
+        },
+        generationConfig: { temperature: 0.2 },
       }),
     });
 
     if (!aiResp.ok) {
       const errText = await aiResp.text();
-      console.error("AI gateway error", aiResp.status, errText);
+      console.error("Gemini error", aiResp.status, errText);
       if (aiResp.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (aiResp.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Add funds in Settings → Workspace → Usage." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+      if (aiResp.status === 401 || aiResp.status === 403) {
+        return new Response(JSON.stringify({ error: "Invalid GEMINI_API_KEY. Please check the key and try again." }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       return new Response(JSON.stringify({ error: "AI analysis failed", detail: errText }), {
         status: 500,
@@ -160,25 +185,40 @@ Rules:
     }
 
     const aiJson = await aiResp.json();
-    const toolCall = aiJson?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) {
+    const candidate = aiJson?.candidates?.[0];
+    const partsOut = candidate?.content?.parts ?? [];
+    const fnCall = partsOut.find((p: any) => p.functionCall)?.functionCall;
+
+    if (!fnCall?.args) {
+      console.error("No function call returned", JSON.stringify(aiJson));
       return new Response(
         JSON.stringify({ error: "AI did not return structured data", raw: aiJson }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    let parsed: any = {};
-    try {
-      parsed = JSON.parse(toolCall.function.arguments);
-    } catch (e) {
-      return new Response(JSON.stringify({ error: "Failed to parse AI output" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const parsed = fnCall.args as Record<string, any>;
 
-    return new Response(JSON.stringify({ result: parsed }), {
+    // Server-side safety: enforce the rules even if model drifts.
+    const monthly = Number(parsed.monthlySalaryEgp) || 0;
+    const annual = Number(parsed.annualSalaryEgp) || monthly * 12;
+    const maxLoan = Number(parsed.maxLoanLimitEgp) || annual * 0.5;
+    const nameMatch = !!parsed.nameMatch;
+
+    let decision: "Approve" | "Reject" = parsed.decision === "Approve" ? "Approve" : "Reject";
+    if (!nameMatch) decision = "Reject";
+    if (loanAmount > maxLoan) decision = "Reject";
+
+    const result = {
+      ...parsed,
+      monthlySalaryEgp: monthly,
+      annualSalaryEgp: annual,
+      maxLoanLimitEgp: maxLoan,
+      requestedLoanEgp: loanAmount,
+      decision,
+    };
+
+    return new Response(JSON.stringify({ result }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
