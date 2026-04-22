@@ -136,33 +136,40 @@ const namesMatch = (a: string, b: string) => {
   return overlap >= Math.min(2, Math.min(ta.length, tb.length));
 };
 
+// Mock applicant pool — simulates what an OCR/AI extraction would yield.
+// 20% of the time, the salary letter name is intentionally mismatched to
+// demonstrate the security-risk flow.
+const MOCK_APPLICANTS: Array<{
+  idName: string;
+  salaryName: string;
+  jobTitle: string;
+  employer: string;
+  annualSalaryUsd: number;
+}> = [
+  { idName: "Ahmed Hassan Mahmoud", salaryName: "Ahmed Hassan Mahmoud", jobTitle: "Senior Software Engineer", employer: "Vodafone Egypt", annualSalaryUsd: 42000 },
+  { idName: "Mona Ibrahim Saleh", salaryName: "Mona Ibrahim Saleh", jobTitle: "Marketing Manager", employer: "Commercial International Bank", annualSalaryUsd: 36000 },
+  { idName: "Omar Khaled Farouk", salaryName: "Omar Khaled Farouk", jobTitle: "Financial Analyst", employer: "EFG Hermes", annualSalaryUsd: 28000 },
+  { idName: "Sara Mostafa Ali", salaryName: "Sara Mostafa Ali", jobTitle: "Lead Product Designer", employer: "Instabug", annualSalaryUsd: 54000 },
+  { idName: "Youssef Adel Ramadan", salaryName: "Youssef Adel Ramadan", jobTitle: "Operations Director", employer: "Juhayna Food Industries", annualSalaryUsd: 65000 },
+  { idName: "Nour Tarek Hosny", salaryName: "Nour Tarek Hosny", jobTitle: "Data Scientist", employer: "Swvl", annualSalaryUsd: 38000 },
+  { idName: "Hassan Mahmoud Saeed", salaryName: "Ahmed Mahmoud Saeed", jobTitle: "Sales Account Executive", employer: "Orange Egypt", annualSalaryUsd: 22000 },
+  { idName: "Layla Ahmed Fathy", salaryName: "Mariam Ahmed Fathy", jobTitle: "HR Business Partner", employer: "Banque Misr", annualSalaryUsd: 31000 },
+];
+
+const pickApplicant = () => MOCK_APPLICANTS[Math.floor(Math.random() * MOCK_APPLICANTS.length)];
+
 const Index = () => {
   const [idFile, setIdFile] = useState<File | null>(null);
   const [salaryFile, setSalaryFile] = useState<File | null>(null);
 
-  // Manually-entered "extracted" data (simulated AI extraction)
-  const [idName, setIdName] = useState("");
-  const [salaryName, setSalaryName] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [employer, setEmployer] = useState("");
-  const [annualSalaryUsd, setAnnualSalaryUsd] = useState<string>("");
   const [loanAmount, setLoanAmount] = useState<string>("");
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
 
   const loanNumber = Number(loanAmount);
-  const salaryNumber = Number(annualSalaryUsd);
 
-  const canAnalyze =
-    !!idFile &&
-    !!salaryFile &&
-    idName.trim().length > 0 &&
-    salaryName.trim().length > 0 &&
-    jobTitle.trim().length > 0 &&
-    salaryNumber > 0 &&
-    loanNumber > 0 &&
-    !loading;
+  const canAnalyze = !!idFile && !!salaryFile && loanNumber > 0 && !loading;
 
   const handleAnalyze = async () => {
     if (!canAnalyze) return;
@@ -171,6 +178,10 @@ const Index = () => {
 
     // Simulate AI processing latency
     await new Promise((r) => setTimeout(r, 1400));
+
+    // Simulated OCR/AI extraction result for this run
+    const applicant = pickApplicant();
+    const { idName, salaryName, jobTitle, employer, annualSalaryUsd: salaryNumber } = applicant;
 
     const annualEgp = salaryNumber * USD_TO_EGP;
     const monthlyEgp = annualEgp / 12;
@@ -287,73 +298,6 @@ const Index = () => {
                   file={salaryFile}
                   onFile={setSalaryFile}
                 />
-              </div>
-
-              {/* Simulated extraction inputs */}
-              <div className="mt-6 rounded-xl border border-border bg-card-soft p-4">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3 font-semibold">
-                  Document Data (extracted)
-                </p>
-                <div className="grid md:grid-cols-2 gap-3">
-                  <div>
-                    <Label htmlFor="idName" className="text-xs text-muted-foreground">
-                      Name on ID Card
-                    </Label>
-                    <Input
-                      id="idName"
-                      value={idName}
-                      onChange={(e) => setIdName(e.target.value)}
-                      placeholder="e.g. Ahmed Hassan Mahmoud"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="salaryName" className="text-xs text-muted-foreground">
-                      Name on Salary Letter
-                    </Label>
-                    <Input
-                      id="salaryName"
-                      value={salaryName}
-                      onChange={(e) => setSalaryName(e.target.value)}
-                      placeholder="e.g. Ahmed Hassan Mahmoud"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="jobTitle" className="text-xs text-muted-foreground">
-                      Job Title
-                    </Label>
-                    <Input
-                      id="jobTitle"
-                      value={jobTitle}
-                      onChange={(e) => setJobTitle(e.target.value)}
-                      placeholder="e.g. Senior Software Engineer"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="employer" className="text-xs text-muted-foreground">
-                      Company / Employer
-                    </Label>
-                    <Input
-                      id="employer"
-                      value={employer}
-                      onChange={(e) => setEmployer(e.target.value)}
-                      placeholder="e.g. National Bank of Egypt"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label htmlFor="salary" className="text-xs text-muted-foreground">
-                      Annual Salary (USD)
-                    </Label>
-                    <Input
-                      id="salary"
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={annualSalaryUsd}
-                      onChange={(e) => setAnnualSalaryUsd(e.target.value)}
-                      placeholder="e.g. 60000"
-                    />
-                  </div>
-                </div>
               </div>
 
               <div className="mt-6 grid md:grid-cols-[1fr_auto] gap-4 items-end">
