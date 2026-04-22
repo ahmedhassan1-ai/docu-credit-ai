@@ -309,7 +309,7 @@ const Index = () => {
                 />
               </div>
 
-              <div className="mt-6 grid md:grid-cols-[1fr_auto] gap-4 items-end">
+              <div className="mt-6 grid md:grid-cols-[1fr_160px_auto] gap-4 items-end">
                 <div>
                   <Label htmlFor="loan" className="text-sm font-semibold text-foreground flex items-center gap-2 mb-2">
                     <Wallet className="h-4 w-4 text-accent" /> Requested Loan Amount (EGP)
@@ -319,9 +319,25 @@ const Index = () => {
                     type="number"
                     inputMode="numeric"
                     min={0}
-                    placeholder="Monthly installment in EGP, e.g. 8000"
+                    placeholder="Total amount in EGP, e.g. 250000"
                     value={loanAmount}
                     onChange={(e) => setLoanAmount(e.target.value)}
+                    className="h-12 text-lg font-semibold"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="term" className="text-sm font-semibold text-foreground flex items-center gap-2 mb-2">
+                    <ShieldCheck className="h-4 w-4 text-accent" /> Term (Years)
+                  </Label>
+                  <Input
+                    id="term"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={30}
+                    placeholder="e.g. 3"
+                    value={loanTerm}
+                    onChange={(e) => setLoanTerm(e.target.value)}
                     className="h-12 text-lg font-semibold"
                   />
                 </div>
@@ -344,6 +360,14 @@ const Index = () => {
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
                 Conversion rate used: 1 USD = {USD_TO_EGP} EGP. Affordability cap: 50% of monthly net income.
+                {loanNumber > 0 && termYears > 0 ? (
+                  <>
+                    {" "}Estimated monthly installment:{" "}
+                    <span className="font-semibold text-foreground">
+                      {new Intl.NumberFormat("en-EG", { style: "currency", currency: "EGP", maximumFractionDigits: 0 }).format(loanNumber / (termYears * 12))}
+                    </span>
+                  </>
+                ) : null}
               </p>
             </CardContent>
           </Card>
