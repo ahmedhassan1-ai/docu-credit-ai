@@ -36,6 +36,8 @@ type AnalysisResult = {
   monthlySalaryEgp: number;
   maxInstallmentEgp: number;
   requestedLoanEgp: number;
+  loanTermYears: number;
+  monthlyInstallmentEgp: number;
   nameMatch: boolean;
   verdict: Verdict;
   justification: string;
@@ -163,13 +165,15 @@ const Index = () => {
   const [salaryFile, setSalaryFile] = useState<File | null>(null);
 
   const [loanAmount, setLoanAmount] = useState<string>("");
+  const [loanTerm, setLoanTerm] = useState<string>("3");
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
 
   const loanNumber = Number(loanAmount);
+  const termYears = Number(loanTerm);
 
-  const canAnalyze = !!idFile && !!salaryFile && loanNumber > 0 && !loading;
+  const canAnalyze = !!idFile && !!salaryFile && loanNumber > 0 && termYears > 0 && !loading;
 
   const handleAnalyze = async () => {
     if (!canAnalyze) return;
@@ -186,6 +190,8 @@ const Index = () => {
     const annualEgp = salaryNumber * USD_TO_EGP;
     const monthlyEgp = annualEgp / 12;
     const maxInstallment = monthlyEgp * 0.5;
+    const months = termYears * 12;
+    const monthlyInstallment = loanNumber / months;
     const match = namesMatch(idName, salaryName);
 
     let verdict: Verdict;
@@ -194,15 +200,16 @@ const Index = () => {
     if (!match) {
       verdict = "Rejected";
       justification = `A critical security flag was raised due to a name inconsistency between the ID document ("${idName}") and the salary letter ("${salaryName}"). Per institutional anti-fraud policy, applications with identity discrepancies are automatically rejected and routed for manual investigation. No financial assessment is conducted until identity is conclusively reconciled.`;
-    } else if (loanNumber <= maxInstallment) {
+    } else if (monthlyInstallment <= maxInstallment) {
       verdict = "Highly Eligible";
-      justification = `Applicant ${idName}, employed as ${jobTitle}${employer ? ` at ${employer}` : ""}, demonstrates strong repayment capacity. Verified annual income of ${formatEgp(annualEgp)} translates to a monthly net of ${formatEgp(monthlyEgp)}. The requested installment of ${formatEgp(loanNumber)} represents a comfortable ${((loanNumber / monthlyEgp) * 100).toFixed(1)}% of monthly income — well within the 50% Max Allowable Installment threshold of ${formatEgp(maxInstallment)}. Identity is verified across both documents. Recommended for fast-track approval.`;
-    } else if (loanNumber <= monthlyEgp * 0.65) {
+      justification = `Applicant ${idName}, employed as ${jobTitle}${employer ? ` at ${employer}` : ""}, demonstrates strong repayment capacity. Verified annual income of ${formatEgp(annualEgp)} translates to a monthly net of ${formatEgp(monthlyEgp)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} (${months} months) yields a monthly installment of ${formatEgp(monthlyInstallment)} — only ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly income, well within the 50% Max Allowable Installment threshold of ${formatEgp(maxInstallment)}. Identity is verified across both documents. Recommended for fast-track approval.`;
+    } else if (monthlyInstallment <= monthlyEgp * 0.65) {
       verdict = "Review Required";
-      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}. The requested installment of ${formatEgp(loanNumber)} equals ${((loanNumber / monthlyEgp) * 100).toFixed(1)}% of monthly net income, marginally exceeding the 50% institutional cap of ${formatEgp(maxInstallment)}. Identity is verified. A senior credit officer should review additional risk factors (existing obligations, tenure, credit history) before final adjudication.`;
+      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} produces a monthly installment of ${formatEgp(monthlyInstallment)} — ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly net income, marginally exceeding the 50% institutional cap of ${formatEgp(maxInstallment)}. Identity is verified. A senior credit officer should review additional risk factors (existing obligations, tenure, credit history) or consider extending the term before final adjudication.`;
     } else {
       verdict = "Rejected";
-      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}, yielding a Max Allowable Installment of ${formatEgp(maxInstallment)}. The requested installment of ${formatEgp(loanNumber)} represents ${((loanNumber / monthlyEgp) * 100).toFixed(1)}% of monthly net income — substantially above the 50% affordability cap. The application is rejected on debt-service-ratio grounds. Applicant may reapply for a reduced amount up to ${formatEgp(maxInstallment)}.`;
+      const maxLoanForTerm = maxInstallment * months;
+      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}, yielding a Max Allowable Installment of ${formatEgp(maxInstallment)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} produces a monthly installment of ${formatEgp(monthlyInstallment)} — ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly net income, substantially above the 50% affordability cap. The application is rejected on debt-service-ratio grounds. Applicant may reapply for up to ${formatEgp(maxLoanForTerm)} over the same ${termYears}-year term, or extend the tenor to reduce the monthly burden.`;
     }
 
     setResult({
@@ -215,6 +222,8 @@ const Index = () => {
       monthlySalaryEgp: monthlyEgp,
       maxInstallmentEgp: maxInstallment,
       requestedLoanEgp: loanNumber,
+      loanTermYears: termYears,
+      monthlyInstallmentEgp: monthlyInstallment,
       nameMatch: match,
       verdict,
       justification,
@@ -300,7 +309,7 @@ const Index = () => {
                 />
               </div>
 
-              <div className="mt-6 grid md:grid-cols-[1fr_auto] gap-4 items-end">
+              <div className="mt-6 grid md:grid-cols-[1fr_160px_auto] gap-4 items-end">
                 <div>
                   <Label htmlFor="loan" className="text-sm font-semibold text-foreground flex items-center gap-2 mb-2">
                     <Wallet className="h-4 w-4 text-accent" /> Requested Loan Amount (EGP)
@@ -310,9 +319,25 @@ const Index = () => {
                     type="number"
                     inputMode="numeric"
                     min={0}
-                    placeholder="Monthly installment in EGP, e.g. 8000"
+                    placeholder="Total amount in EGP, e.g. 250000"
                     value={loanAmount}
                     onChange={(e) => setLoanAmount(e.target.value)}
+                    className="h-12 text-lg font-semibold"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="term" className="text-sm font-semibold text-foreground flex items-center gap-2 mb-2">
+                    <ShieldCheck className="h-4 w-4 text-accent" /> Term (Years)
+                  </Label>
+                  <Input
+                    id="term"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={30}
+                    placeholder="e.g. 3"
+                    value={loanTerm}
+                    onChange={(e) => setLoanTerm(e.target.value)}
                     className="h-12 text-lg font-semibold"
                   />
                 </div>
@@ -335,6 +360,14 @@ const Index = () => {
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
                 Conversion rate used: 1 USD = {USD_TO_EGP} EGP. Affordability cap: 50% of monthly net income.
+                {loanNumber > 0 && termYears > 0 ? (
+                  <>
+                    {" "}Estimated monthly installment:{" "}
+                    <span className="font-semibold text-foreground">
+                      {new Intl.NumberFormat("en-EG", { style: "currency", currency: "EGP", maximumFractionDigits: 0 }).format(loanNumber / (termYears * 12))}
+                    </span>
+                  </>
+                ) : null}
               </p>
             </CardContent>
           </Card>
@@ -540,11 +573,25 @@ const Index = () => {
                     </p>
                   </div>
                   <div className="rounded-lg border border-border p-4 bg-card-soft">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Requested Installment</p>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Requested Loan & Term
+                    </p>
                     <p className="font-display font-bold text-foreground mt-1">
                       <span className="text-accent">{formatEgp(result.requestedLoanEgp)}</span>{" "}
                       <span className="text-sm text-muted-foreground">
-                        ({((result.requestedLoanEgp / result.monthlySalaryEgp) * 100).toFixed(1)}% of monthly net)
+                        over {result.loanTermYears} year{result.loanTermYears > 1 ? "s" : ""} ({result.loanTermYears * 12} months)
+                      </span>
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border p-4 bg-card-soft md:col-span-2">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Monthly Installment
+                    </p>
+                    <p className="font-display font-bold text-foreground mt-1">
+                      {formatEgp(result.requestedLoanEgp)} ÷ {result.loanTermYears * 12} months ={" "}
+                      <span className="text-accent">{formatEgp(result.monthlyInstallmentEgp)}</span>{" "}
+                      <span className="text-sm text-muted-foreground">
+                        ({((result.monthlyInstallmentEgp / result.monthlySalaryEgp) * 100).toFixed(1)}% of monthly net)
                       </span>
                     </p>
                   </div>
