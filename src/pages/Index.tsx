@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { extractApplicantData } from "@/lib/documentExtraction";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -138,28 +139,6 @@ const namesMatch = (a: string, b: string) => {
   return overlap >= Math.min(2, Math.min(ta.length, tb.length));
 };
 
-// Mock applicant pool — simulates what an OCR/AI extraction would yield.
-// 20% of the time, the salary letter name is intentionally mismatched to
-// demonstrate the security-risk flow.
-const MOCK_APPLICANTS: Array<{
-  idName: string;
-  salaryName: string;
-  jobTitle: string;
-  employer: string;
-  annualSalaryUsd: number;
-}> = [
-  { idName: "Ahmed Hassan Mahmoud", salaryName: "Ahmed Hassan Mahmoud", jobTitle: "Senior Software Engineer", employer: "Vodafone Egypt", annualSalaryUsd: 42000 },
-  { idName: "Mona Ibrahim Saleh", salaryName: "Mona Ibrahim Saleh", jobTitle: "Marketing Manager", employer: "Commercial International Bank", annualSalaryUsd: 36000 },
-  { idName: "Omar Khaled Farouk", salaryName: "Omar Khaled Farouk", jobTitle: "Financial Analyst", employer: "EFG Hermes", annualSalaryUsd: 28000 },
-  { idName: "Sara Mostafa Ali", salaryName: "Sara Mostafa Ali", jobTitle: "Lead Product Designer", employer: "Instabug", annualSalaryUsd: 54000 },
-  { idName: "Youssef Adel Ramadan", salaryName: "Youssef Adel Ramadan", jobTitle: "Operations Director", employer: "Juhayna Food Industries", annualSalaryUsd: 65000 },
-  { idName: "Nour Tarek Hosny", salaryName: "Nour Tarek Hosny", jobTitle: "Data Scientist", employer: "Swvl", annualSalaryUsd: 38000 },
-  { idName: "Hassan Mahmoud Saeed", salaryName: "Ahmed Mahmoud Saeed", jobTitle: "Sales Account Executive", employer: "Orange Egypt", annualSalaryUsd: 22000 },
-  { idName: "Layla Ahmed Fathy", salaryName: "Mariam Ahmed Fathy", jobTitle: "HR Business Partner", employer: "Banque Misr", annualSalaryUsd: 31000 },
-];
-
-const pickApplicant = () => MOCK_APPLICANTS[Math.floor(Math.random() * MOCK_APPLICANTS.length)];
-
 const Index = () => {
   const [idFile, setIdFile] = useState<File | null>(null);
   const [salaryFile, setSalaryFile] = useState<File | null>(null);
@@ -180,56 +159,66 @@ const Index = () => {
     setLoading(true);
     setResult(null);
 
-    // Simulate AI processing latency
-    await new Promise((r) => setTimeout(r, 1400));
+    try {
+      const extracted = await extractApplicantData(idFile!, salaryFile!);
+      const idName = extracted.idName.trim();
+      const salaryName = extracted.salaryName.trim();
+      const jobTitle = extracted.jobTitle.trim();
+      const employer = extracted.employer.trim();
+      const salaryNumber = extracted.annualSalaryUsd;
 
-    // Simulated OCR/AI extraction result for this run
-    const applicant = pickApplicant();
-    const { idName, salaryName, jobTitle, employer, annualSalaryUsd: salaryNumber } = applicant;
+      if (!salaryNumber || !idName || !salaryName) {
+        toast.error("Could not read enough data from the documents clearly.");
+        return;
+      }
 
-    const annualEgp = salaryNumber * USD_TO_EGP;
-    const monthlyEgp = annualEgp / 12;
-    const maxInstallment = monthlyEgp * 0.5;
-    const months = termYears * 12;
-    const monthlyInstallment = loanNumber / months;
-    const match = namesMatch(idName, salaryName);
+      const annualEgp = salaryNumber * USD_TO_EGP;
+      const monthlyEgp = annualEgp / 12;
+      const maxInstallment = monthlyEgp * 0.5;
+      const months = termYears * 12;
+      const monthlyInstallment = loanNumber / months;
+      const match = namesMatch(idName, salaryName);
 
-    let verdict: Verdict;
-    let justification: string;
+      let verdict: Verdict;
+      let justification: string;
 
-    if (!match) {
-      verdict = "Rejected";
-      justification = `A critical security flag was raised due to a name inconsistency between the ID document ("${idName}") and the salary letter ("${salaryName}"). Per institutional anti-fraud policy, applications with identity discrepancies are automatically rejected and routed for manual investigation. No financial assessment is conducted until identity is conclusively reconciled.`;
-    } else if (monthlyInstallment <= maxInstallment) {
-      verdict = "Highly Eligible";
-      justification = `Applicant ${idName}, employed as ${jobTitle}${employer ? ` at ${employer}` : ""}, demonstrates strong repayment capacity. Verified annual income of ${formatEgp(annualEgp)} translates to a monthly net of ${formatEgp(monthlyEgp)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} (${months} months) yields a monthly installment of ${formatEgp(monthlyInstallment)} — only ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly income, well within the 50% Max Allowable Installment threshold of ${formatEgp(maxInstallment)}. Identity is verified across both documents. Recommended for fast-track approval.`;
-    } else if (monthlyInstallment <= monthlyEgp * 0.65) {
-      verdict = "Review Required";
-      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} produces a monthly installment of ${formatEgp(monthlyInstallment)} — ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly net income, marginally exceeding the 50% institutional cap of ${formatEgp(maxInstallment)}. Identity is verified. A senior credit officer should review additional risk factors (existing obligations, tenure, credit history) or consider extending the term before final adjudication.`;
-    } else {
-      verdict = "Rejected";
-      const maxLoanForTerm = maxInstallment * months;
-      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}, yielding a Max Allowable Installment of ${formatEgp(maxInstallment)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} produces a monthly installment of ${formatEgp(monthlyInstallment)} — ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly net income, substantially above the 50% affordability cap. The application is rejected on debt-service-ratio grounds. Applicant may reapply for up to ${formatEgp(maxLoanForTerm)} over the same ${termYears}-year term, or extend the tenor to reduce the monthly burden.`;
+      if (!match) {
+        verdict = "Rejected";
+        justification = `A critical security flag was raised due to a name inconsistency between the ID document ("${idName}") and the salary letter ("${salaryName}"). Per institutional anti-fraud policy, applications with identity discrepancies are automatically rejected and routed for manual investigation. No financial assessment is conducted until identity is conclusively reconciled.`;
+      } else if (monthlyInstallment <= maxInstallment) {
+        verdict = "Highly Eligible";
+        justification = `Applicant ${idName}, employed as ${jobTitle}${employer ? ` at ${employer}` : ""}, demonstrates strong repayment capacity. Verified annual income of ${formatEgp(annualEgp)} translates to a monthly net of ${formatEgp(monthlyEgp)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} (${months} months) yields a monthly installment of ${formatEgp(monthlyInstallment)} — only ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly income, well within the 50% Max Allowable Installment threshold of ${formatEgp(maxInstallment)}. Identity is verified across both documents. Recommended for fast-track approval.`;
+      } else if (monthlyInstallment <= monthlyEgp * 0.65) {
+        verdict = "Review Required";
+        justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} produces a monthly installment of ${formatEgp(monthlyInstallment)} — ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly net income, marginally exceeding the 50% institutional cap of ${formatEgp(maxInstallment)}. Identity is verified. A senior credit officer should review additional risk factors (existing obligations, tenure, credit history) or consider extending the term before final adjudication.`;
+      } else {
+        verdict = "Rejected";
+        const maxLoanForTerm = maxInstallment * months;
+        justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}, yielding a Max Allowable Installment of ${formatEgp(maxInstallment)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} produces a monthly installment of ${formatEgp(monthlyInstallment)} — ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly net income, substantially above the 50% affordability cap. The application is rejected on debt-service-ratio grounds. Applicant may reapply for up to ${formatEgp(maxLoanForTerm)} over the same ${termYears}-year term, or extend the tenor to reduce the monthly burden.`;
+      }
+
+      setResult({
+        idName,
+        salaryName,
+        jobTitle,
+        employer,
+        annualSalaryUsd: salaryNumber,
+        annualSalaryEgp: annualEgp,
+        monthlySalaryEgp: monthlyEgp,
+        maxInstallmentEgp: maxInstallment,
+        requestedLoanEgp: loanNumber,
+        loanTermYears: termYears,
+        monthlyInstallmentEgp: monthlyInstallment,
+        nameMatch: match,
+        verdict,
+        justification,
+      });
+      toast.success("Analysis complete");
+    } catch {
+      toast.error("Document reading failed. Try a clearer salary letter or PDF.");
+    } finally {
+      setLoading(false);
     }
-
-    setResult({
-      idName: idName.trim(),
-      salaryName: salaryName.trim(),
-      jobTitle: jobTitle.trim(),
-      employer: employer.trim(),
-      annualSalaryUsd: salaryNumber,
-      annualSalaryEgp: annualEgp,
-      monthlySalaryEgp: monthlyEgp,
-      maxInstallmentEgp: maxInstallment,
-      requestedLoanEgp: loanNumber,
-      loanTermYears: termYears,
-      monthlyInstallmentEgp: monthlyInstallment,
-      nameMatch: match,
-      verdict,
-      justification,
-    });
-    setLoading(false);
-    toast.success("Analysis complete");
   };
 
   const verdictTone = useMemo(() => {
