@@ -36,6 +36,8 @@ type AnalysisResult = {
   monthlySalaryEgp: number;
   maxInstallmentEgp: number;
   requestedLoanEgp: number;
+  loanTermYears: number;
+  monthlyInstallmentEgp: number;
   nameMatch: boolean;
   verdict: Verdict;
   justification: string;
