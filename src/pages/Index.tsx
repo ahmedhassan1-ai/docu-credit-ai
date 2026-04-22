@@ -165,13 +165,15 @@ const Index = () => {
   const [salaryFile, setSalaryFile] = useState<File | null>(null);
 
   const [loanAmount, setLoanAmount] = useState<string>("");
+  const [loanTerm, setLoanTerm] = useState<string>("3");
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
 
   const loanNumber = Number(loanAmount);
+  const termYears = Number(loanTerm);
 
-  const canAnalyze = !!idFile && !!salaryFile && loanNumber > 0 && !loading;
+  const canAnalyze = !!idFile && !!salaryFile && loanNumber > 0 && termYears > 0 && !loading;
 
   const handleAnalyze = async () => {
     if (!canAnalyze) return;
@@ -188,6 +190,8 @@ const Index = () => {
     const annualEgp = salaryNumber * USD_TO_EGP;
     const monthlyEgp = annualEgp / 12;
     const maxInstallment = monthlyEgp * 0.5;
+    const months = termYears * 12;
+    const monthlyInstallment = loanNumber / months;
     const match = namesMatch(idName, salaryName);
 
     let verdict: Verdict;
@@ -196,15 +200,16 @@ const Index = () => {
     if (!match) {
       verdict = "Rejected";
       justification = `A critical security flag was raised due to a name inconsistency between the ID document ("${idName}") and the salary letter ("${salaryName}"). Per institutional anti-fraud policy, applications with identity discrepancies are automatically rejected and routed for manual investigation. No financial assessment is conducted until identity is conclusively reconciled.`;
-    } else if (loanNumber <= maxInstallment) {
+    } else if (monthlyInstallment <= maxInstallment) {
       verdict = "Highly Eligible";
-      justification = `Applicant ${idName}, employed as ${jobTitle}${employer ? ` at ${employer}` : ""}, demonstrates strong repayment capacity. Verified annual income of ${formatEgp(annualEgp)} translates to a monthly net of ${formatEgp(monthlyEgp)}. The requested installment of ${formatEgp(loanNumber)} represents a comfortable ${((loanNumber / monthlyEgp) * 100).toFixed(1)}% of monthly income — well within the 50% Max Allowable Installment threshold of ${formatEgp(maxInstallment)}. Identity is verified across both documents. Recommended for fast-track approval.`;
-    } else if (loanNumber <= monthlyEgp * 0.65) {
+      justification = `Applicant ${idName}, employed as ${jobTitle}${employer ? ` at ${employer}` : ""}, demonstrates strong repayment capacity. Verified annual income of ${formatEgp(annualEgp)} translates to a monthly net of ${formatEgp(monthlyEgp)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} (${months} months) yields a monthly installment of ${formatEgp(monthlyInstallment)} — only ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly income, well within the 50% Max Allowable Installment threshold of ${formatEgp(maxInstallment)}. Identity is verified across both documents. Recommended for fast-track approval.`;
+    } else if (monthlyInstallment <= monthlyEgp * 0.65) {
       verdict = "Review Required";
-      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}. The requested installment of ${formatEgp(loanNumber)} equals ${((loanNumber / monthlyEgp) * 100).toFixed(1)}% of monthly net income, marginally exceeding the 50% institutional cap of ${formatEgp(maxInstallment)}. Identity is verified. A senior credit officer should review additional risk factors (existing obligations, tenure, credit history) before final adjudication.`;
+      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} produces a monthly installment of ${formatEgp(monthlyInstallment)} — ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly net income, marginally exceeding the 50% institutional cap of ${formatEgp(maxInstallment)}. Identity is verified. A senior credit officer should review additional risk factors (existing obligations, tenure, credit history) or consider extending the term before final adjudication.`;
     } else {
       verdict = "Rejected";
-      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}, yielding a Max Allowable Installment of ${formatEgp(maxInstallment)}. The requested installment of ${formatEgp(loanNumber)} represents ${((loanNumber / monthlyEgp) * 100).toFixed(1)}% of monthly net income — substantially above the 50% affordability cap. The application is rejected on debt-service-ratio grounds. Applicant may reapply for a reduced amount up to ${formatEgp(maxInstallment)}.`;
+      const maxLoanForTerm = maxInstallment * months;
+      justification = `Applicant ${idName} (${jobTitle}${employer ? `, ${employer}` : ""}) has a verified monthly income of ${formatEgp(monthlyEgp)}, yielding a Max Allowable Installment of ${formatEgp(maxInstallment)}. The requested loan of ${formatEgp(loanNumber)} over ${termYears} year${termYears > 1 ? "s" : ""} produces a monthly installment of ${formatEgp(monthlyInstallment)} — ${((monthlyInstallment / monthlyEgp) * 100).toFixed(1)}% of monthly net income, substantially above the 50% affordability cap. The application is rejected on debt-service-ratio grounds. Applicant may reapply for up to ${formatEgp(maxLoanForTerm)} over the same ${termYears}-year term, or extend the tenor to reduce the monthly burden.`;
     }
 
     setResult({
@@ -217,6 +222,8 @@ const Index = () => {
       monthlySalaryEgp: monthlyEgp,
       maxInstallmentEgp: maxInstallment,
       requestedLoanEgp: loanNumber,
+      loanTermYears: termYears,
+      monthlyInstallmentEgp: monthlyInstallment,
       nameMatch: match,
       verdict,
       justification,
