@@ -1,6 +1,6 @@
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { createWorker } from "tesseract.js";
+import { createWorker, PSM } from "tesseract.js";
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -77,7 +77,7 @@ const getOcrWorker = async () => {
       errorHandler: () => undefined,
     }).then(async (worker) => {
       await worker.setParameters({
-        tessedit_pageseg_mode: "11",
+        tessedit_pageseg_mode: PSM.SPARSE_TEXT,
         preserve_interword_spaces: "1",
       });
       return worker;
@@ -121,7 +121,7 @@ const extractTextFromPdf = async (file: File) => {
       canvas.width = viewport.width;
       canvas.height = viewport.height;
 
-      await page.render({ canvasContext: context, viewport }).promise;
+      await page.render({ canvas, canvasContext: context, viewport }).promise;
       const blob = await canvasToBlob(canvas);
       ocrText += `\n${await recognizeWithOcr(blob)}`;
     }
