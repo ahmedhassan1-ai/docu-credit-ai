@@ -573,11 +573,25 @@ const Index = () => {
                     </p>
                   </div>
                   <div className="rounded-lg border border-border p-4 bg-card-soft">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Requested Installment</p>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Requested Loan & Term
+                    </p>
                     <p className="font-display font-bold text-foreground mt-1">
                       <span className="text-accent">{formatEgp(result.requestedLoanEgp)}</span>{" "}
                       <span className="text-sm text-muted-foreground">
-                        ({((result.requestedLoanEgp / result.monthlySalaryEgp) * 100).toFixed(1)}% of monthly net)
+                        over {result.loanTermYears} year{result.loanTermYears > 1 ? "s" : ""} ({result.loanTermYears * 12} months)
+                      </span>
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border p-4 bg-card-soft md:col-span-2">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Monthly Installment
+                    </p>
+                    <p className="font-display font-bold text-foreground mt-1">
+                      {formatEgp(result.requestedLoanEgp)} ÷ {result.loanTermYears * 12} months ={" "}
+                      <span className="text-accent">{formatEgp(result.monthlyInstallmentEgp)}</span>{" "}
+                      <span className="text-sm text-muted-foreground">
+                        ({((result.monthlyInstallmentEgp / result.monthlySalaryEgp) * 100).toFixed(1)}% of monthly net)
                       </span>
                     </p>
                   </div>
